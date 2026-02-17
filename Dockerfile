@@ -5,7 +5,9 @@ FROM ros:humble-ros-core-jammy
 ENV DEBIAN_FRONTEND=noninteractive
 ENV ROS_DISTRO=humble
 
-# install bootstrap tools
+#--------------------------------------------------
+# System + ROS dev tools
+#--------------------------------------------------
 RUN apt-get update && apt-get install --no-install-recommends -y \
     build-essential \
     git \
@@ -17,12 +19,17 @@ RUN apt-get update && apt-get install --no-install-recommends -y \
     udev \
     sudo \
     tmux \
+    wget \
     && rm -rf /var/lib/apt/lists/*
 
-# bootstrap rosdep
-RUN rosdep init && rosdep update --rosdistro $ROS_DISTRO
+#--------------------------------------------------
+# Initialize rosdep
+#--------------------------------------------------
+RUN rosdep init && rosdep update --rosdistro ${ROS_DISTRO}
 
-# setup colcon mixin and metadata
+#--------------------------------------------------
+# Colcon mixins + metadata
+#--------------------------------------------------
 RUN colcon mixin add default \
       https://raw.githubusercontent.com/colcon/colcon-mixin-repository/master/index.yaml && \
     colcon mixin update && \
@@ -30,12 +37,40 @@ RUN colcon mixin add default \
       https://raw.githubusercontent.com/colcon/colcon-metadata-repository/master/index.yaml && \
     colcon metadata update
 
-# install ros2 packages
+#--------------------------------------------------
+# Robotics packages
+#--------------------------------------------------
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-humble-ros-base=0.10.0-1* \
+    ros-humble-turtlebot3 \
+    ros-humble-turtlebot3-msgs \
+    ros-humble-dynamixel-sdk \
+    ros-humble-navigation2 \
+    ros-humble-nav2-bringup \
+    ros-humble-rtabmap \
+    ros-humble-rtabmap-ros \
+    ros-humble-rviz2 \
+    ros-humble-tf2-tools \
+    ros-humble-cv-bridge \
+    ros-humble-image-transport \
+    ros-humble-vision-opencv \
     && rm -rf /var/lib/apt/lists/*
 
-#Create non-root user
+#Freeze ROS packages for stability
+RUN apt-mark hold 'ros-humble-*'
+
+#--------------------------------------------------
+# Install workspace dependencies
+#--------------------------------------------------
+WORKDIR /tmp/ws
+COPY ros2_ws/src ./src
+
+RUN rosdep update && \
+    rosdep install --from-paths src --ignore-src -r -y
+
+#--------------------------------------------------
+# Create non-root user
+#--------------------------------------------------
 ARG userName=ros
 ARG userId=1000
 ARG groupId=1000
@@ -47,8 +82,16 @@ RUN groupadd -g ${groupId} ${userName} && \
 USER ${userName}
 WORKDIR /ros2_ws
 
-RUN echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> /home/${userName}/.bashrc
-RUN echo "source /ros2_ws/install/setup.bash" >> /home/${userName}/.bashrc || true
+#--------------------------------------------------
+# ROS environment setup
+#--------------------------------------------------
+RUN echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> /home/${userName}/.bashrc && \
+    echo "source ~/ros2_ws/install/setup.bash" >> /home/${userName}/.bashrc && \
+    echo "export TURTLEBOT3_MODEL=waffle_pi" >> /home/${userName}/.bashrc && \
+    echo "export ROS_DOMAIN_ID=30" >> /home/${userName}/.bashrc && \
+    echo "export RMW_IMPLEMENTATION=rmw_fastrtps_cpp" >> /home/${userName}/.bashrc
 
-ENTRYPOINT ["/ros2_ws/docker/entrypoint.sh"]
-
+#Default environment variables (also active non-interactively)
+ENV TURTLEBOT3_MODEL=waffle_pi
+ENV ROS_DOMAIN_ID=30
+ENV RMW_IMPLEMENTATION=rmw_f
